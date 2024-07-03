@@ -14,13 +14,15 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
     error dNVDA__InsufficientBalance();
 
     string public s_mintSourceCode;
+    string public s_redeemSourceCode;
     uint8 immutable s_slotId;
     uint64 immutable s_secretVersion;
     uint64 immutable s_subscriptionId;
     bytes32 immutable i_donId;
     uint256 ADDITIONAL_FEE_PRECISION = 1e10;
+    uint256 constant DECIMAL_PRECISION = 1e18;
     uint32 constant PRECISION = 100;
-    uint256 constant MINT_PRECISION = 200;
+    uint256 constant COLLATERAL_RATIO = 200;
     uint32 constant CALLBACK_GAS_LIMIT = 300_000;
     uint256 s_portfolioBalance;
     AggregatorV3Interface public aggV3;
@@ -38,11 +40,13 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
         MintOrRedeem mintOrRedeem;
     }
     event MintRequestSent(address sender, uint256 numTokensToMint);
+    event RedeemRequestSent(address sender, uint256 _numDnvdaTokens);
 
     constructor(
         string memory name,
         string memory symbol,
         string memory mintSourceCode,
+        string memory redeemSourceCode,
         address functionsRouter,
         uint64 subscriptionId,
         uint8 slotId,
@@ -55,6 +59,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
         FunctionsClient(functionsRouter)
     {
         s_mintSourceCode = mintSourceCode;
+        s_redeemSourceCode = redeemSourceCode;
         s_subscriptionId = subscriptionId;
         s_slotId = slotId;
         s_secretVersion = secretVersion;
@@ -69,7 +74,10 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
     function sendMintRequest(
         uint256 dNVDAmount
     ) public onlyOwner returns (bytes32) {
-        if (getAdjustedNvdaValue(dNVDAmount) > s_portfolioBalance) {
+        if (
+            getCollateralRatioAdjustedTotalBalance(dNVDAmount) >
+            s_portfolioBalance
+        ) {
             dNVDA__InsufficientBalance();
         }
         FunctionsRequest.Request memory req;
@@ -90,14 +98,59 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
         return requestId;
     }
 
-    function getAdjustedNvdaValue(
-        uint256 tokenAmount
-    ) internal returns (uint256) {
-        return (tokenAmount * tokenUsdValue(tokenAmount)) / PRECISION;
+    function sendRedeemReq(uint256 _numdNvdaToken) public onlyOwner {
+        if (
+            getCollateralRatioAdjustedTotalBalance(_numdNvdaToken) >
+            s_portfolioBalance
+        ) {
+            dNVDA__InsufficientBalance();
+        }
+        FunctionsRequest.Request memory req;
+        req.initializeRequestForInlineJavaScript(s_redeemSourceCode);
+        req.addDONHostedSecrets(s_slotId, s_secretVersion);
+        bytes32 requestId = _sendRequest(
+            req.encodeCBOR(),
+            s_subscriptionId,
+            CALLBACK_GAS_LIMIT,
+            i_donId
+        );
+        reqIdToRequest[requestId] = dNvdaRequest(
+            msg.sender,
+            _numdNvdaToken,
+            MintOrRedeem.Redeem
+        );
+        emit RedeemRequestSent(msg.sender, _numdNvdaToken);
     }
 
-    function tokenUsdValue(uint256 tokenAmount) internal returns (uint256) {
-        return getNvdaPrice() * MINT_PRECISION;
+    function fulfillMintReq(bytes32 response, bytes32 requestId) internal {
+        uint256 portfolioBalance = uint256(bytes32(requestId));
+        s_portfolioBalance = portfolioBalance;
+    }
+
+    function fulfillRedeemReq() internal {}
+
+    function fulfillRequest(bytes32 response, bytes32 _requestId) public {
+        dNvdaRequest memory thisReq = reqIdToRequest[_requestId];
+        if (thisReq.mintOrRedeem == MintOrRedeem.Mint) {
+            fulfillMintReq(response, _requestId);
+        } else {
+            fulfillRedeemReq();
+        }
+    }
+
+    function getCollateralRatioAdjustedTotalBalance(
+        uint256 tokenAmount
+    ) internal returns (uint256) {
+        uint256 totalAdjustedValue = getTotalTokenValue(tokenAmount);
+        return (totalAdjustedValue * COLLATERAL_RATIO) / PRECISION;
+    }
+
+    function getTotalTokenValue(
+        uint256 tokenAmount
+    ) internal returns (uint256) {
+        return
+            ((totalSupply() + tokenAmount) * getNvdaPrice()) /
+            DECIMAL_PRECISION;
     }
 
     function getNvdaPrice() public returns (uint256) {
