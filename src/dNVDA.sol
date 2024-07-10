@@ -19,9 +19,10 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
     using Strings for uint256;
 
     // Custom errors
+    error dNVDA__RedemptionlFailed();
     error dNVDA__InsufficientBalance();
-    error dNVDA__RedemptionWithdrawalFailed();
     error dNVDA__InsufficientRedemptionAmount();
+    error dNVDA__ChainlinkFunctionsFailed(string reason);
 
     // State variables
     string public s_mintSourceCode;
@@ -41,7 +42,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
     uint32 public constant CALLBACK_GAS_LIMIT = 300_000;
 
     uint256 public s_portfolioBalance;
-    AggregatorV3Interface public aggV3;
+    AggregatorV3Interface public aggV3Nvda;
     AggregatorV3Interface public aggV3Usdc;
 
     // Mappings
@@ -75,7 +76,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
      * @param slotId The slot ID for DON-hosted secrets
      * @param secretVersion The version of the DON-hosted secrets
      * @param donId The DON ID for Chainlink Functions
-     * @param priceFeed The address of the NVDA price feed
+     * @param nvdaPriceFeed The address of the NVDA price feed
      * @param redemptionCoin The address of the USDC contract
      * @param usdcPricefeed The address of the USDC price feed
      */
@@ -84,12 +85,12 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
         string memory symbol,
         string memory mintSourceCode,
         string memory redeemSourceCode,
-        address functionsRouter,
         uint64 subscriptionId,
-        uint8 slotId,
         uint64 secretVersion,
+        uint8 slotId,
         bytes32 donId,
-        address priceFeed,
+        address functionsRouter,
+        address nvdaPriceFeed,
         address redemptionCoin,
         address usdcPricefeed
     )
@@ -103,7 +104,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
         i_slotId = slotId;
         i_secretVersion = secretVersion;
         i_donId = donId;
-        aggV3 = AggregatorV3Interface(priceFeed);
+        aggV3Nvda = AggregatorV3Interface(nvdaPriceFeed);
         aggV3Usdc = AggregatorV3Interface(usdcPricefeed);
         i_redemptionCoin = redemptionCoin;
     }
@@ -118,12 +119,12 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
         uint256 dNVDAmount
     ) public onlyOwner returns (bytes32) {
         // Check if there's sufficient balance in the portfolio
-        if (
-            getCollateralRatioAdjustedTotalBalance(dNVDAmount) >
-            s_portfolioBalance
-        ) {
-            revert dNVDA__InsufficientBalance();
-        }
+        // if (
+        //     getCollateralRatioAdjustedTotalBalance(dNVDAmount) >
+        //     s_portfolioBalance
+        // ) {
+        //     revert dNVDA__InsufficientBalance();
+        // }
 
         // Prepare and send the Chainlink Functions request
         FunctionsRequest.Request memory req;
@@ -199,7 +200,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
      */
     function fulfillMintReq(bytes memory response, bytes32 requestId) internal {
         uint256 amountOfTokenToMint = reqIdToRequest[requestId].amountOfToken;
-        s_portfolioBalance = uint256(bytes32(requestId));
+        s_portfolioBalance = uint256(bytes32(response));
 
         // Check if there's sufficient balance in the portfolio
         if (
@@ -241,15 +242,25 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
     /**
      * @notice Fulfills a Chainlink Functions request
      * @dev Called by the Chainlink node to process the response
+     * @param requestId The ID of the request
      * @param response The response from the Chainlink Functions
-     * @param _requestId The ID of the request
+     * @param err Any error message from the Chainlink Functions
      */
-    function fulfillRequest(bytes memory response, bytes32 _requestId) public {
-        dNvdaRequest memory thisReq = reqIdToRequest[_requestId];
+    function fulfillRequest(
+        bytes32 requestId,
+        bytes memory response,
+        bytes memory err
+    ) internal override {
+        if (err.length > 0) {
+            // Handle the error
+            revert dNVDA__ChainlinkFunctionsFailed(string(err));
+        }
+
+        dNvdaRequest memory thisReq = reqIdToRequest[requestId];
         if (thisReq.mintOrRedeem == MintOrRedeem.Mint) {
-            fulfillMintReq(response, _requestId);
+            fulfillMintReq(response, requestId);
         } else {
-            fulfillRedeemReq(response, _requestId);
+            fulfillRedeemReq(response, requestId);
         }
     }
 
@@ -265,7 +276,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
             msg.sender,
             amountToWithdraw
         );
-        if (!isSuccess) revert dNVDA__RedemptionWithdrawalFailed();
+        if (!isSuccess) revert dNVDA__RedemptionlFailed();
     }
 
     /**
@@ -283,7 +294,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
      * @return The USDC value of the USD amount
      */
     function getUsdcValueUsd(uint256 totalNumUsd) public returns (uint256) {
-        return totalNumUsd * getUsdcPrice();
+        return (totalNumUsd * DECIMAL_PRECISION) / getUsdcPrice();
     }
 
     /**
@@ -316,7 +327,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
      * @return The current NVDA price
      */
     function getNvdaPrice() public returns (uint256) {
-        (, int256 price, , , ) = aggV3.latestRoundData();
+        (, int256 price, , , ) = aggV3Nvda.latestRoundData();
         return uint256(price) * ADDITIONAL_FEE_PRECISION;
     }
 
@@ -327,5 +338,13 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
     function getUsdcPrice() public returns (uint256) {
         (, int256 price, , , ) = aggV3Usdc.latestRoundData();
         return uint256(price) * ADDITIONAL_FEE_PRECISION;
+    }
+
+    //////////////////////
+    /// View Functions ///
+    //////////////////////
+
+    function getPortfolioBalance() public returns (uint256) {
+        return s_portfolioBalance;
     }
 }
