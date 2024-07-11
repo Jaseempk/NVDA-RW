@@ -92,7 +92,8 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
         address functionsRouter,
         address nvdaPriceFeed,
         address redemptionCoin,
-        address usdcPricefeed
+        address usdcPricefeed,
+        bytes memory response
     )
         ERC20(name, symbol)
         ConfirmedOwner(msg.sender)
@@ -107,6 +108,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
         aggV3Nvda = AggregatorV3Interface(nvdaPriceFeed);
         aggV3Usdc = AggregatorV3Interface(usdcPricefeed);
         i_redemptionCoin = redemptionCoin;
+        initializePortfolioBalance(response);
     }
 
     /**
@@ -119,12 +121,12 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
         uint256 dNVDAmount
     ) public onlyOwner returns (bytes32) {
         // Check if there's sufficient balance in the portfolio
-        // if (
-        //     getCollateralRatioAdjustedTotalBalance(dNVDAmount) >
-        //     s_portfolioBalance
-        // ) {
-        //     revert dNVDA__InsufficientBalance();
-        // }
+        if (
+            getCollateralRatioAdjustedTotalBalance(dNVDAmount) >
+            s_portfolioBalance
+        ) {
+            revert dNVDA__InsufficientBalance();
+        }
 
         // Prepare and send the Chainlink Functions request
         FunctionsRequest.Request memory req;
@@ -280,11 +282,21 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
     }
 
     /**
+     *@notice initialises portfolio balance from api call to alpaca
+     * @param response api call response from alpaca for checking nvda balance
+     */
+    function initializePortfolioBalance(bytes memory response) internal {
+        s_portfolioBalance = uint256(bytes32(response));
+    }
+
+    /**
      * @notice Calculates the USD value of NVDA tokens
      * @param nvdaAmount The amount of NVDA tokens
      * @return The USD value of the NVDA tokens
      */
-    function getUsdValueOfNvda(uint256 nvdaAmount) public returns (uint256) {
+    function getUsdValueOfNvda(
+        uint256 nvdaAmount
+    ) public view returns (uint256) {
         return nvdaAmount * getNvdaPrice();
     }
 
@@ -293,7 +305,9 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
      * @param totalNumUsd The total USD amount
      * @return The USDC value of the USD amount
      */
-    function getUsdcValueUsd(uint256 totalNumUsd) public returns (uint256) {
+    function getUsdcValueUsd(
+        uint256 totalNumUsd
+    ) public view returns (uint256) {
         return (totalNumUsd * DECIMAL_PRECISION) / getUsdcPrice();
     }
 
@@ -304,7 +318,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
      */
     function getCollateralRatioAdjustedTotalBalance(
         uint256 tokenAmount
-    ) internal returns (uint256) {
+    ) internal view returns (uint256) {
         uint256 totalAdjustedValue = getTotalTokenValue(tokenAmount);
         return (totalAdjustedValue * COLLATERAL_RATIO) / PRECISION;
     }
@@ -316,7 +330,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
      */
     function getTotalTokenValue(
         uint256 tokenAmount
-    ) internal returns (uint256) {
+    ) internal view returns (uint256) {
         return
             ((totalSupply() + tokenAmount) * getNvdaPrice()) /
             DECIMAL_PRECISION;
@@ -326,7 +340,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
      * @notice Gets the current NVDA price from the Chainlink price feed
      * @return The current NVDA price
      */
-    function getNvdaPrice() public returns (uint256) {
+    function getNvdaPrice() public view returns (uint256) {
         (, int256 price, , , ) = aggV3Nvda.latestRoundData();
         return uint256(price) * ADDITIONAL_FEE_PRECISION;
     }
@@ -335,7 +349,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
      * @notice Gets the current USDC price from the Chainlink price feed
      * @return The current USDC price
      */
-    function getUsdcPrice() public returns (uint256) {
+    function getUsdcPrice() public view returns (uint256) {
         (, int256 price, , , ) = aggV3Usdc.latestRoundData();
         return uint256(price) * ADDITIONAL_FEE_PRECISION;
     }
@@ -344,7 +358,7 @@ contract dNVDA is ERC20, ConfirmedOwner, FunctionsClient {
     /// View Functions ///
     //////////////////////
 
-    function getPortfolioBalance() public returns (uint256) {
+    function getPortfolioBalance() public view returns (uint256) {
         return s_portfolioBalance;
     }
 }

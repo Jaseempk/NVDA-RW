@@ -1,4 +1,5 @@
 //SPDX-License-Identifier:MIT
+pragma solidity ^0.8.24;
 
 interface IGetNvdaReturnTypes {
     struct GetNvdaReturnTypes {
@@ -12,5 +13,6 @@ interface IGetNvdaReturnTypes {
         address redemptionCoin;
         uint64 secretVersion;
         uint8 secretSlot;
+        bytes response;
     }
 }
