@@ -8,11 +8,17 @@
     "test": "test"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "simulate": "source .env && node ./functions/simulators/alpacaMintSimulator.js",
+    "mint": "source .env && node ./functions/simulators/alpacaMintSimulator.js",
+    "redeem": "source .env && node ./functions/simulators/alpacaRedeemSimulator.js",
+    "uploadSecrets": "source .env && node ./functions/uploadSecrets.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@chainlink/functions-toolkit": "^0.2.8"
+    "@chainlink/functions-toolkit": "^0.2.8",
+    "deno": "^0.1.1",
+    "secp256k1": "^5.0.0"
   }
 }

@@ -1,14 +1,16 @@
-if (secrets.alpacaKey === "" || secrets.alpacaSecret === "") {
+const requestConfig = require("../configs/alpacaMintConfig")
+
+if (requestConfig.secrets.alpacaKey === "" || requestConfig.secrets.alpacaSecret === "") {
     throw Error("Need alpaca keys")
 }
 
-const alpacaRequest = Functions.makeHttpRequest({
+const alpacaRequest = functions.makeHttpRequest({
 
     url: "https://paper-api.alpaca.markets/v2/account",
     headers: {
         accept: "application/json",
-        "APCA-API-KEY-ID": alpaca.alpacaKey,
-        "APCA-API-SECRET-KEY": alpaca.alpacaSecret
+        "APCA-API-KEY-ID": requestConfig.secrets.alpacaKey,
+        "APCA-API-SECRET-KEY": requestConfig.secrets.alpacaSecret
     }
 }
 )
