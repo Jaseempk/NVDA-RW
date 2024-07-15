@@ -10,7 +10,7 @@ import {HelperConfig} from "./HelperConfig.sol";
 contract DeploydNvda is Script {
     string constant alpacaMintSource = "./functions//sources/alpacaBalance.js";
     string constant alpacaRedeemSource =
-        "./functions//sources/alpacaBalance.js";
+        "./functions//sources/sellNvdaAndSendUsdc.js";
 
     string public name = "backed NVDA";
     string public symbol = "dNVDA";
